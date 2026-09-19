@@ -56,7 +56,7 @@ class FixedCamera(AbstractCamera):
                     f"frames[{position}] must be a numpy array, "
                     f"got {type(frame).__name__}"
                 )
-            if frame.ndim != 3 or frame.shape[2] != 3:
+            if frame.ndim != 3 or frame.shape[2] != 3: # must be 3d array and 3 channels for RGB
                 raise ValueError(
                     f"frames[{position}] must have shape (height, width, 3), "
                     f"got {frame.shape}"
