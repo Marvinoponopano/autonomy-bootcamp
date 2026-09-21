@@ -170,6 +170,5 @@ def main() -> int:
     print("RESULT  PASS  nice work, your tests catch every bug we planted.")
     return 0
 
-
 if __name__ == "__main__":
     sys.exit(main())

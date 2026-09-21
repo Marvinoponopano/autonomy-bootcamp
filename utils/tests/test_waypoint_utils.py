@@ -88,9 +88,149 @@ def test_parse_waypoints_file_success(tmp_path, text, expected):
     assert parse_waypoints_file(path) == expected
 
 
-def test_placeholder():
-    # TODO(bootcamper): delete this and write real tests. It's only here so
-    # linter doesn't complain about unused imports before you start.
-    assert callable(east_north_coordinate_offset_m)
-    assert callable(parse_waypoints_file)
-    assert callable(sort_clockwise_sweep)
+
+# tests
+def test_parse_waypoints_file_rejects_bad_input(tmp_path):
+    bad_cases = [
+        "home: 123\nwaypoints: []\n",
+        "home: {lat: 1, lon: 2}\nwaypoints: []\n",
+        "home: {lat: nope, lon: 2, alt: 3}\nwaypoints: []\n",
+        "waypoints:\n  - {lat: 91, lon: 0, alt: 1}\n",
+        "waypoints: [not, valid]\n",
+        "home: [1, 2, 3]\nwaypoints: []\n",
+    ]
+
+    for text in bad_cases:
+        path = write_to_tmp_waypoints_file(tmp_path, text)
+        with pytest.raises(ValueError):
+            parse_waypoints_file(path)
+
+    missing_path = tmp_path / "missing.yaml"
+    with pytest.raises(OSError):
+        parse_waypoints_file(missing_path)
+
+
+def test_parse_waypoints_file_empty_file_returns_empty_result(tmp_path):
+    path = write_to_tmp_waypoints_file(tmp_path, "")
+    assert parse_waypoints_file(path) == (None, [])
+
+
+def test_parse_waypoints_file_rejects_non_mapping_and_non_list_inputs(tmp_path):
+    for text in ["42\n", "[]\n", "- lat: 1\n  lon: 2\n  alt: 3\n", "waypoints: {lat: 1, lon: 2, alt: 3}\n"]:
+        path = write_to_tmp_waypoints_file(tmp_path, text)
+        with pytest.raises(ValueError):
+            parse_waypoints_file(path)
+
+    path = write_to_tmp_waypoints_file(tmp_path, "home: [1, 2, 3]\nwaypoints: 5\n")
+    with pytest.raises(ValueError):
+        parse_waypoints_file(path)
+
+    invalid_yaml = write_to_tmp_waypoints_file(tmp_path, "home: [1, 2\n")
+    with pytest.raises(ValueError):
+        parse_waypoints_file(invalid_yaml)
+
+
+def test_east_north_coordinate_offset_m_basic_cases():
+    east, north = east_north_coordinate_offset_m(0.0, 0.0, 0.0, 1.0)
+    assert east > 0
+    assert north == pytest.approx(0.0, abs=1e-9)
+
+    east, north = east_north_coordinate_offset_m(0.0, 0.0, 1.0, 0.0)
+    assert east == pytest.approx(0.0, abs=1e-9)
+    assert north > 0
+
+    east, north = east_north_coordinate_offset_m(0.0, 0.0, 0.0, 0.0)
+    assert (east, north) == pytest.approx((0.0, 0.0))
+
+
+def test_sort_clockwise_sweep_starts_from_north_by_default():
+    points = [
+        Coordinate(1.0, 0.0, 0.0),
+        Coordinate(0.0, 1.0, 0.0),
+        Coordinate(-1.0, 0.0, 0.0),
+        Coordinate(0.0, -1.0, 0.0),
+    ]
+
+    ordered = sort_clockwise_sweep(points)
+    assert ordered == [
+        Coordinate(1.0, 0.0, 0.0),
+        Coordinate(0.0, 1.0, 0.0),
+        Coordinate(-1.0, 0.0, 0.0),
+        Coordinate(0.0, -1.0, 0.0),
+    ]
+
+
+def test_sort_clockwise_sweep_handles_empty_and_singleton_lists():
+    assert sort_clockwise_sweep([]) == []
+    single = [Coordinate(1.0, 2.0, 3.0)]
+    assert sort_clockwise_sweep(single) == single
+
+
+def test_sort_clockwise_sweep_uses_home_direction_when_home_is_not_centroid():
+    points = [
+        Coordinate(1.0, 0.0, 0.0),
+        Coordinate(0.0, 1.0, 0.0),
+        Coordinate(-1.0, 0.0, 0.0),
+        Coordinate(0.0, -1.0, 0.0),
+    ]
+    home = Coordinate(0.0, 1.0, 0.0)
+
+    ordered = sort_clockwise_sweep(points, home=home)
+    assert ordered == [
+        Coordinate(0.0, 1.0, 0.0),
+        Coordinate(-1.0, 0.0, 0.0),
+        Coordinate(0.0, -1.0, 0.0),
+        Coordinate(1.0, 0.0, 0.0),
+    ]
+
+
+def test_sort_clockwise_sweep_resets_to_north_when_home_is_centroid():
+    points = [
+        Coordinate(1.0, 0.0, 0.0),
+        Coordinate(0.0, 1.0, 0.0),
+        Coordinate(-1.0, 0.0, 0.0),
+        Coordinate(0.0, -1.0, 0.0),
+    ]
+    home = Coordinate(0.0, 0.0, 0.0)
+
+    ordered = sort_clockwise_sweep(points, home=home)
+    assert ordered == [
+        Coordinate(1.0, 0.0, 0.0),
+        Coordinate(0.0, 1.0, 0.0),
+        Coordinate(-1.0, 0.0, 0.0),
+        Coordinate(0.0, -1.0, 0.0),
+    ]
+
+
+def test_sort_clockwise_sweep_uses_farthest_dist_for_same_direction():
+    same_direction = [
+        Coordinate(0.0, 2.0, 0.0),
+        Coordinate(0.0, 1.0, 0.0),
+    ]
+
+    assert sort_clockwise_sweep(same_direction) == [
+        Coordinate(0.0, 2.0, 0.0),
+        Coordinate(0.0, 1.0, 0.0),
+    ]
+
+
+def test_east_north_coordinate_offset_m_uses_radians_and_latitude_scaling():
+    east_0, north_0 = east_north_coordinate_offset_m(0.0, 0.0, 0.0, 1.0)
+    east_60, north_60 = east_north_coordinate_offset_m(60.0, 0.0, 60.0, 1.0)
+    _, north_1 = east_north_coordinate_offset_m(0.0, 0.0, 1.0, 0.0)
+
+    assert east_0 > 0
+    assert east_60 > 0
+    assert east_60 < east_0
+    assert north_0 == pytest.approx(0.0, abs=1e-6)
+    assert north_1 == pytest.approx(111195.0802335329, rel=1e-6)
+    assert north_60 == pytest.approx(0.0, abs=1e-6)
+    assert east_60 == pytest.approx(55597.54011676647, rel=1e-6)
+
+
+def test_coordinate_is_frozen():
+    from dataclasses import FrozenInstanceError
+
+    coord = Coordinate(1.0, 2.0, 3.0)
+    with pytest.raises(FrozenInstanceError):
+        coord.lat = 99.0
